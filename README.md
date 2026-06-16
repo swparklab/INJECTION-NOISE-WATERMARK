@@ -6,7 +6,7 @@ Enterprise invisible-watermark platform for content provenance, leak tracing, an
 
 Built on top of the original Tree-Ring research code (kept as one of several pluggable engines), the platform combines classical signal-domain watermarking, neural/diffusion adapters, cryptographic payloads, a provenance registry, a tamper-evident audit trail, C2PA content credentials, and a signed evidence platform — behind a single FastAPI service.
 
-> Developed by **Park Seong-Woo** / AIMZ Media.
+> Developed by **Park Seong-Woo** (AIMZ Media).
 
 ---
 
@@ -197,4 +197,4 @@ pytest tests/app/ --cov=app                # with coverage
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md). © 2024 Park Seong-Woo, AIMZ Media.
+MIT — see [LICENSE.md](LICENSE.md). © 2024 Park Seong-Woo.
