@@ -197,4 +197,4 @@ pytest tests/app/ --cov=app                # with coverage
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md). © 2024 Park Seong-Woo.
+MIT — see [LICENSE.md](LICENSE.md). © 2026 Park Seong-Woo.
