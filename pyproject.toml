@@ -1,0 +1,207 @@
+[build-system]
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "injection_noise_watermark"
+version = "0.2.0"
+description = "Injection Noise Watermark: Invisible watermark injection for diffusion-generated content using frequency domain patterns"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Park Seong-Woo", email = "seongwoo@aimz.media"},
+]
+keywords = ["watermarking", "diffusion", "content-protection", "deep-learning"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.35.0",
+    "diffusers>=0.21.0",
+    "open-clip-torch>=2.20.0",
+    "pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.66.0",
+    # Platform: API layer
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6",
+    # Platform: payload / crypto / ECC
+    "cryptography>=41.0.0",
+    "reedsolo>=1.7.0",
+    "pynacl>=1.5.0",
+    "pydantic-settings>=2.0.0",
+    # Platform: image / video / signal processing
+    "opencv-python>=4.8.0",
+    "PyWavelets>=1.4.0",
+    "imageio>=2.31.0",
+    "imageio-ffmpeg>=0.4.9",
+    "av>=10.0.0",
+    "scikit-image>=0.22.0",
+    # Platform: persistence / queue / storage
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.12.0",
+    "redis>=5.0.0",
+    "boto3>=1.28.0",
+    # Platform: observability
+    "structlog>=23.2.0",
+    "prometheus-client>=0.18.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.3.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.25.0",
+    "black>=23.7.0",
+    "isort>=5.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.3.0",
+]
+docs = [
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme>=1.3.0",
+    "sphinx-autodoc-typehints>=1.24.0",
+    "myst-parser>=2.0.0",
+]
+postgres = [
+    "psycopg2-binary>=2.9.0",
+    "asyncpg>=0.29.0",
+]
+neural = [
+    # Neural watermark backends (optional, model weights fetched separately)
+    "timm>=0.9.0",
+    "safetensors>=0.4.0",
+]
+provenance = [
+    # C2PA content credentials
+    "c2pa-python>=0.5.0",
+]
+benchmark = [
+    "wandb>=0.15.0",
+    "tensorboard>=2.14.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/YOUR_USERNAME/injection-noise-watermark"
+Documentation = "https://injection-noise-watermark.readthedocs.io"
+Repository = "https://github.com/YOUR_USERNAME/injection-noise-watermark.git"
+Issues = "https://github.com/YOUR_USERNAME/injection-noise-watermark/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra -q --strict-markers --tb=short"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests requiring GPU (deselect with '-m \"not gpu\"')",
+    "integration: marks tests as integration tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+  | \.eggs
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 100
+multi_line_mode = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+skip_glob = ["*/migrations/*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+    "D",    # pydocstyle
+    "UP",   # pyupgrade
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "D100",  # Missing docstring in public module
+    "D104",  # Missing docstring in public package
+    "D105",  # Missing docstring in magic method
+    "E501",  # Line too long (handled by black)
+    "B008",  # Do not perform function calls in argument defaults
+    "E402",  # Module level import not at top of file
+]
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    ".eggs",
+    "*.egg-info",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "guided_diffusion",
+    "open_clip",
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+exclude = [
+    "guided_diffusion",
+    "open_clip",
+    "build",
+    "dist",
+]
