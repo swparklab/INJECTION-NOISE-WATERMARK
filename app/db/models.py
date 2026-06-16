@@ -131,6 +131,9 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    # Monotonic insertion sequence — stable chain ordering even when several
+    # entries share the same wall-clock timestamp.
+    seq: Mapped[int] = mapped_column(Integer, index=True, default=0)
     actor: Mapped[str] = mapped_column(String(128), index=True, default="system")
     action: Mapped[str] = mapped_column(String(64), index=True)
     resource_type: Mapped[str] = mapped_column(String(64), default="")

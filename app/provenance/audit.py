@@ -38,10 +38,9 @@ class AuditService:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def _last_hash(self) -> str:
-        stmt = select(AuditLog).order_by(AuditLog.created_at.desc()).limit(1)
-        last = self.session.scalars(stmt).first()
-        return last.entry_hash if last else ""
+    def _last_entry(self) -> AuditLog | None:
+        stmt = select(AuditLog).order_by(AuditLog.seq.desc()).limit(1)
+        return self.session.scalars(stmt).first()
 
     def log(
         self,
@@ -53,9 +52,12 @@ class AuditService:
     ) -> AuditLog:
         """Append a new audit entry linked to the previous one."""
         detail = detail or {}
-        prev = self._last_hash()
+        last = self._last_entry()
+        prev = last.entry_hash if last else ""
+        next_seq = (last.seq + 1) if last else 0
         entry_hash = _hash_entry(prev, actor, action, resource_id, detail)
         entry = AuditLog(
+            seq=next_seq,
             actor=actor,
             action=action,
             resource_type=resource_type,
@@ -76,7 +78,7 @@ class AuditService:
             link's stored hash does not match a recomputation, or if the prev
             pointer does not match the actual previous entry's hash.
         """
-        stmt = select(AuditLog).order_by(AuditLog.created_at.asc())
+        stmt = select(AuditLog).order_by(AuditLog.seq.asc())
         entries = list(self.session.scalars(stmt))
         prev = ""
         for e in entries:

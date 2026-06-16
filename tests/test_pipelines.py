@@ -3,6 +3,9 @@
 import pytest
 import torch
 
+# The legacy SD pipeline pulls in `diffusers`; skip this module if unavailable.
+pytest.importorskip("diffusers")
+
 from tree_ring_watermark.pipelines.base import BaseDiffusionPipeline, PipelineFactory
 
 
