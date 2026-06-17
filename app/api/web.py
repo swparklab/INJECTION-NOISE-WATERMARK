@@ -64,6 +64,16 @@ I18N: dict[str, dict[str, str]] = {
         "f.client_opt": "클라이언트 ID (선택 — 검색 범위 축소)",
         "f.method": "제거 방식",
         "f.asset_tmpl": "자산 ID (템플릿 상쇄 방식에 필요)",
+        "roi.title": "삽입 영역 · 시간 (영상)",
+        "roi.region": "삽입 영역 — 박스를 드래그/리사이즈해서 지정",
+        "roi.x": "X (%)",
+        "roi.y": "Y (%)",
+        "roi.w": "너비 (%)",
+        "roi.h": "높이 (%)",
+        "roi.start": "시작 (초)",
+        "roi.end": "끝 (초)",
+        "roi.hint": "전체에 넣으려면 박스를 가득 채우세요. 작은 영역은 고해상도 영상에서만 가능합니다.",
+        "roi.read_region": "판독 영역 — 삽입 때와 같은 영역으로 지정",
         # buttons
         "btn.embed": "워터마크 삽입",
         "btn.embed.busy": "삽입 중…",
@@ -169,6 +179,16 @@ I18N: dict[str, dict[str, str]] = {
         "f.client_opt": "Client ID (optional — narrows search)",
         "f.method": "Method",
         "f.asset_tmpl": "Asset ID (required for template cancellation)",
+        "roi.title": "Region · Time (video)",
+        "roi.region": "Embed region — drag / resize the box",
+        "roi.x": "X (%)",
+        "roi.y": "Y (%)",
+        "roi.w": "Width (%)",
+        "roi.h": "Height (%)",
+        "roi.start": "Start (s)",
+        "roi.end": "End (s)",
+        "roi.hint": "Fill the box for whole-frame. Small regions only fit on high-resolution video.",
+        "roi.read_region": "Read region — match the region used at embed time",
         "btn.embed": "Embed watermark",
         "btn.embed.busy": "Embedding…",
         "btn.read": "Read watermark",
@@ -360,6 +380,21 @@ button.go:active{transform:translateY(2px) scale(.99)}
   *{animation:none!important;transition:none!important}
   .tile,.tile h3,.tile p,.tile a{transform:none!important}
 }
+
+/* ---------- ROI / region picker ---------- */
+.roiwrap{margin-top:16px;display:none}
+.stage{position:relative;width:100%;max-width:520px;user-select:none;touch-action:none;
+  border-radius:12px;overflow:hidden;border:1px solid var(--border);background:#000}
+.stage img,.stage video{display:block;width:100%}
+.roibox{position:absolute;left:0;top:0;width:100%;height:100%;cursor:move;box-sizing:border-box;
+  border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);
+  box-shadow:0 0 0 9999px color-mix(in srgb,#000 35%,transparent)}
+.roibox .rh{position:absolute;width:16px;height:16px;background:var(--accent);border-radius:4px;
+  right:-9px;bottom:-9px;cursor:nwse-resize;box-shadow:0 2px 6px rgba(0,0,0,.4)}
+.roifields{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.roifields>div{flex:1;min-width:70px}
+.roifields label{margin:0 0 4px}
+.roihint{font-size:12px;color:var(--muted);margin-top:8px}
 """
 
 _LOGO = (
@@ -426,6 +461,59 @@ function initTilt(){
     });
     el.addEventListener('pointerleave', ()=>{ el.style.transform=''; });
   });
+}
+// ---- ROI / region + time picker (video) ----
+// cfg: {withTime:bool} ; expects ids: file, roiwrap, stage, roibox, roi_x, roi_y, roi_w, roi_h
+//      and (if withTime) start_sec, end_sec. Returns an object with isActive()/values().
+function attachRoi(cfg){
+  const fileEl=document.getElementById('file');
+  const wrap=document.getElementById('roiwrap');
+  const stage=document.getElementById('stage');
+  const box=document.getElementById('roibox');
+  let url=null, isVid=false;
+  let bx=0,by=0,bw=100,bh=100;
+  const $=(id)=>document.getElementById(id);
+  function draw(){ box.style.left=bx+'%';box.style.top=by+'%';box.style.width=bw+'%';box.style.height=bh+'%'; }
+  function sync(){ $('roi_x').value=Math.round(bx);$('roi_y').value=Math.round(by);
+    $('roi_w').value=Math.round(bw);$('roi_h').value=Math.round(bh); }
+  function setBox(x,y,w,h){ bw=Math.max(5,Math.min(100,w)); bh=Math.max(5,Math.min(100,h));
+    bx=Math.max(0,Math.min(100-bw,x)); by=Math.max(0,Math.min(100-bh,y)); draw(); }
+  fileEl.addEventListener('change', e=>{
+    const f=e.target.files[0];
+    if(!f){ wrap.style.display='none'; return; }
+    isVid=(f.type||'').startsWith('video');
+    if(!isVid && !cfg.alwaysShow){ wrap.style.display='none'; return; }
+    if(url) URL.revokeObjectURL(url); url=URL.createObjectURL(f);
+    const media = isVid ? document.createElement('video') : document.createElement('img');
+    media.src=url; if(isVid){ media.controls=true; media.muted=true; media.playsInline=true; }
+    stage.innerHTML=''; stage.appendChild(media); stage.appendChild(box);
+    wrap.style.display='block'; setBox(0,0,100,100); sync();
+    if(cfg.withTime && isVid){ media.addEventListener('loadedmetadata', ()=>{
+      if(isFinite(media.duration)){ $('start_sec').value='0'; $('end_sec').value=media.duration.toFixed(1); } }); }
+  });
+  // drag move / resize
+  let mode=null,sx,sy,o;
+  box.addEventListener('pointerdown', e=>{ e.preventDefault();
+    mode = e.target.classList.contains('rh') ? 'resize':'move';
+    sx=e.clientX; sy=e.clientY; o={bx,by,bw,bh}; box.setPointerCapture(e.pointerId); });
+  box.addEventListener('pointermove', e=>{ if(!mode) return;
+    const r=stage.getBoundingClientRect();
+    const dx=(e.clientX-sx)/r.width*100, dy=(e.clientY-sy)/r.height*100;
+    if(mode==='move') setBox(o.bx+dx,o.by+dy,o.bw,o.bh); else setBox(o.bx,o.by,o.bw+dx,o.bh+dy);
+    sync(); });
+  box.addEventListener('pointerup', ()=>{ mode=null; });
+  ['roi_x','roi_y','roi_w','roi_h'].forEach(id=>$(id).addEventListener('input', ()=>{
+    setBox(+$('roi_x').value,+$('roi_y').value,+$('roi_w').value,+$('roi_h').value); }));
+  return {
+    isVideo:()=>isVid,
+    appendTo:(fd)=>{
+      const full = Math.round(bx)===0&&Math.round(by)===0&&Math.round(bw)===100&&Math.round(bh)===100;
+      if(!full){ fd.append('roi_x',(bx/100).toFixed(4)); fd.append('roi_y',(by/100).toFixed(4));
+        fd.append('roi_w',(bw/100).toFixed(4)); fd.append('roi_h',(bh/100).toFixed(4)); }
+      if(cfg.withTime && isVid){ const s=$('start_sec').value, en=$('end_sec').value;
+        if(s!=='') fd.append('start_sec',s); if(en!=='') fd.append('end_sec',en); }
+    }
+  };
 }
 document.documentElement.setAttribute('data-theme', curTheme());
 window.addEventListener('DOMContentLoaded', ()=>{ setTheme(curTheme()); applyI18n(); initTilt(); });
@@ -495,12 +583,30 @@ async def embed_page() -> str:
         <label><span data-i18n="f.strength"></span>: <span id="sv">0.20</span></label>
         <input type="range" id="strength" min="0.05" max="0.4" step="0.01" value="0.20"
                oninput="document.getElementById('sv').textContent=this.value">
+
+        <div class="roiwrap" id="roiwrap">
+          <label data-i18n="roi.region"></label>
+          <div class="stage" id="stage"><div class="roibox" id="roibox"><div class="rh"></div></div></div>
+          <div class="roifields">
+            <div><label data-i18n="roi.x"></label><input id="roi_x" type="number" value="0"></div>
+            <div><label data-i18n="roi.y"></label><input id="roi_y" type="number" value="0"></div>
+            <div><label data-i18n="roi.w"></label><input id="roi_w" type="number" value="100"></div>
+            <div><label data-i18n="roi.h"></label><input id="roi_h" type="number" value="100"></div>
+          </div>
+          <div class="roifields">
+            <div><label data-i18n="roi.start"></label><input id="start_sec" type="number" step="0.1" value="0"></div>
+            <div><label data-i18n="roi.end"></label><input id="end_sec" type="number" step="0.1" value=""></div>
+          </div>
+          <div class="roihint" data-i18n="roi.hint"></div>
+        </div>
+
         <button type="submit" class="go" id="go" data-i18n="btn.embed"></button>
       </form>
       <div class="result" id="res"></div>
     </div>
     <script>
     loadModels('model');
+    const roi = attachRoi({withTime:true});
     document.getElementById('file').addEventListener('change', e=>{
       const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
       if((f.type||'').startsWith('video')) k.value='video';
@@ -513,7 +619,9 @@ async def embed_page() -> str:
       fd.append('file', document.getElementById('file').files[0]);
       for(const k of ['asset_id','client_id','recipient_id','model','strength','distribution_id'])
         fd.append(k, document.getElementById(k).value);
-      const url = document.getElementById('kind').value==='video' ? '/api/v1/video/embed' : '/api/v1/embed';
+      const isVideo = document.getElementById('kind').value==='video';
+      if(isVideo) roi.appendTo(fd);
+      const url = isVideo ? '/api/v1/video/embed' : '/api/v1/embed';
       try{
         const r=await fetch(url,{method:'POST',body:fd}); const d=await r.json();
         if(!r.ok){ show('res', badge(false,t('badge.error'))+' '+(d.detail||'')); }
@@ -544,11 +652,24 @@ async def read_page() -> str:
             <select id="kind"><option value="image" data-i18n="kind.image"></option><option value="video" data-i18n="kind.video"></option></select></div>
           <div><label data-i18n="f.client_opt"></label><input id="client_id" value="CLIENT-A"></div>
         </div>
+
+        <div class="roiwrap" id="roiwrap">
+          <label data-i18n="roi.read_region"></label>
+          <div class="stage" id="stage"><div class="roibox" id="roibox"><div class="rh"></div></div></div>
+          <div class="roifields">
+            <div><label data-i18n="roi.x"></label><input id="roi_x" type="number" value="0"></div>
+            <div><label data-i18n="roi.y"></label><input id="roi_y" type="number" value="0"></div>
+            <div><label data-i18n="roi.w"></label><input id="roi_w" type="number" value="100"></div>
+            <div><label data-i18n="roi.h"></label><input id="roi_h" type="number" value="100"></div>
+          </div>
+        </div>
+
         <button type="submit" class="go" id="go" data-i18n="btn.read"></button>
       </form>
       <div class="result" id="res"></div>
     </div>
     <script>
+    const roi = attachRoi({withTime:false});
     document.getElementById('file').addEventListener('change', e=>{
       const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
       if((f.type||'').startsWith('video')) k.value='video';
@@ -559,7 +680,9 @@ async def read_page() -> str:
       const b=document.getElementById('go'); b.disabled=true; b.textContent=t('btn.read.busy');
       const fd=new FormData(); fd.append('file', document.getElementById('file').files[0]);
       const cid=document.getElementById('client_id').value; if(cid) fd.append('client_id', cid);
-      const url = document.getElementById('kind').value==='video' ? '/api/v1/video/trace' : '/api/v1/trace';
+      const isVideo = document.getElementById('kind').value==='video';
+      if(isVideo) roi.appendTo(fd);
+      const url = isVideo ? '/api/v1/video/trace' : '/api/v1/trace';
       try{
         const r=await fetch(url,{method:'POST',body:fd}); const d=await r.json();
         if(!r.ok){ show('res', badge(false,t('badge.error'))+' '+(d.detail||'')); }

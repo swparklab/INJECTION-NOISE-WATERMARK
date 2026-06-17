@@ -126,14 +126,22 @@ async def embed_video(
     distribution_id: str = Form(""),
     parent_delivery_id: str | None = Form(None),
     title: str = Form(""),
+    roi_x: float = Form(0.0),
+    roi_y: float = Form(0.0),
+    roi_w: float = Form(1.0),
+    roi_h: float = Form(1.0),
+    start_sec: float = Form(0.0),
+    end_sec: float = Form(-1.0),
     service: WatermarkService = Depends(get_watermark_service),
     session: Session = Depends(db_session),
 ) -> EmbedResponse:
-    """Embed a watermark token into every frame of an uploaded video.
+    """Embed a watermark token into an uploaded video.
 
-    Each frame carries the same delivery token; detection later uses majority
-    frame-voting. The output is re-encoded to H.264. Heavy for long clips — for
-    production this runs on a background worker.
+    The mark can be confined to a **spatial region** (``roi_*`` fractions of the
+    frame) and a **time range** (``start_sec``..``end_sec``; ``end_sec<0`` = to
+    the end). Frames outside the time range are left untouched; within range the
+    token is embedded into the chosen ROI of each frame. Detection later uses
+    majority frame-voting (the same ROI must be supplied when reading).
     """
     import tempfile
 
@@ -164,12 +172,43 @@ async def embed_video(
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    full_roi = video_io.is_full_roi(roi_x, roi_y, roi_w, roi_h)
+    end = end_sec if end_sec >= 0 else (len(frames) / fps + 1.0)
+
     psnrs: list[float] = []
     wm_frames = []
-    for frame in frames:
-        res = engine.embed(frame, wire, key, strength)
-        wm_frames.append(res.image)
+    embedded = 0
+    for i, frame in enumerate(frames):
+        t = i / fps
+        if not (start_sec <= t <= end):
+            wm_frames.append(frame)
+            continue
+        try:
+            if full_roi:
+                res = engine.embed(frame, wire, key, strength)
+                out_frame = res.image
+            else:
+                x0, y0, x1, y1 = video_io.roi_to_pixels(
+                    frame.shape[0], frame.shape[1], roi_x, roi_y, roi_w, roi_h
+                )
+                res = engine.embed(frame[y0:y1, x0:x1], wire, key, strength)
+                out_frame = frame.copy()
+                out_frame[y0:y1, x0:x1] = res.image
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "선택한 영역이 너무 작아 워터마크 토큰을 넣을 수 없습니다. "
+                    "영역을 넓히거나 더 높은 해상도의 영상을 사용하세요. "
+                    f"({exc})"
+                ),
+            ) from exc
         psnrs.append(res.psnr)
+        wm_frames.append(out_frame)
+        embedded += 1
+
+    if embedded == 0:
+        raise HTTPException(status_code=400, detail="지정한 시간 구간에 해당하는 프레임이 없습니다")
 
     out_dir = Path(settings.data_dir) / "assets"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -177,6 +216,7 @@ async def embed_video(
     # High-quality encode (crf 16) so the low-amplitude mark survives this encode.
     video_io.write_frames(out_path, wm_frames, fps=fps, codec="libx264", crf=16)
 
+    roi_meta = {"x": roi_x, "y": roi_y, "w": roi_w, "h": roi_h}
     reg = RegistryService(session)
     reg.create_asset(asset_id, client_id, title=title, media_type="video")
     reg.record_delivery(
@@ -190,14 +230,27 @@ async def embed_video(
         distribution_id=distribution_id,
         parent_delivery_id=parent_delivery_id,
         output_uri=str(out_path),
-        metadata={"media_type": "video", "frames": len(frames), "fps": fps},
+        metadata={
+            "media_type": "video",
+            "frames": len(frames),
+            "embedded_frames": embedded,
+            "fps": fps,
+            "roi": roi_meta,
+            "time_range": [start_sec, None if end_sec < 0 else end_sec],
+        },
     )
     AuditService(session).log(
         "embed.video",
         actor=client_id,
         resource_type="delivery",
         resource_id=delivery_id,
-        detail={"model": model, "recipient": recipient_id, "frames": len(frames)},
+        detail={
+            "model": model,
+            "recipient": recipient_id,
+            "frames": len(frames),
+            "embedded_frames": embedded,
+            "roi": roi_meta,
+        },
     )
     session.commit()
 

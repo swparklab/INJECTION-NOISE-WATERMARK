@@ -37,6 +37,29 @@ def read_frames(path: str | Path, max_frames: int | None = None) -> Iterator[np.
             break
 
 
+def roi_to_pixels(
+    h: int, w: int, fx: float, fy: float, fw: float, fh: float
+) -> tuple[int, int, int, int]:
+    """Convert fractional ROI (0..1) to pixel bounds ``(x0, y0, x1, y1)``.
+
+    Clamps to the frame and guarantees a non-empty region.
+    """
+    x0 = int(round(fx * w))
+    y0 = int(round(fy * h))
+    x1 = int(round((fx + fw) * w))
+    y1 = int(round((fy + fh) * h))
+    x0 = max(0, min(x0, w - 1))
+    y0 = max(0, min(y0, h - 1))
+    x1 = max(x0 + 1, min(x1, w))
+    y1 = max(y0 + 1, min(y1, h))
+    return x0, y0, x1, y1
+
+
+def is_full_roi(fx: float, fy: float, fw: float, fh: float, eps: float = 1e-3) -> bool:
+    """True if the ROI covers (approximately) the whole frame."""
+    return abs(fx) < eps and abs(fy) < eps and abs(fw - 1.0) < eps and abs(fh - 1.0) < eps
+
+
 def probe_fps(path: str | Path, default: float = 30.0) -> float:
     """Return the video's frame rate, falling back to ``default`` if unknown."""
     try:

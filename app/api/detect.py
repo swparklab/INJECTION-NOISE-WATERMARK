@@ -43,9 +43,17 @@ async def detect_video(
     asset_id: str = Form(...),
     model: str = Form("custom-noise"),
     max_frames: int = Form(16),
+    roi_x: float = Form(0.0),
+    roi_y: float = Form(0.0),
+    roi_w: float = Form(1.0),
+    roi_h: float = Form(1.0),
     service: WatermarkService = Depends(get_watermark_service),
 ) -> DetectResponse:
-    """Detect a watermark across sampled video frames via majority vote."""
+    """Detect a watermark across sampled video frames via majority vote.
+
+    Supply the same ``roi_*`` fractions used at embed time when the mark was
+    confined to a region.
+    """
     import tempfile
     from pathlib import Path
 
@@ -57,6 +65,13 @@ async def detect_video(
     frames = video_io.sample_frames(tmp_path, n=max_frames)
     if not frames:
         raise HTTPException(status_code=400, detail="no frames decoded from video")
+
+    if not video_io.is_full_roi(roi_x, roi_y, roi_w, roi_h):
+        frames = [
+            f[y0:y1, x0:x1]
+            for f in frames
+            for (x0, y0, x1, y1) in [video_io.roi_to_pixels(f.shape[0], f.shape[1], roi_x, roi_y, roi_w, roi_h)]
+        ]
 
     det = service.detect_video(frames, asset_id, model)
     return DetectResponse(
