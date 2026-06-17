@@ -74,6 +74,16 @@ I18N: dict[str, dict[str, str]] = {
         "roi.end": "끝 (초)",
         "roi.hint": "전체에 넣으려면 박스를 가득 채우세요. 작은 영역은 고해상도 영상에서만 가능합니다.",
         "roi.read_region": "판독 영역 — 삽입 때와 같은 영역으로 지정",
+        # model descriptions (hover help)
+        "model.custom-noise.desc": "기본·범용 엔진. 키 기반 가우시안 스프레드 스펙트럼으로 이미지·영상 모두 지원하며 JPEG·재인코딩에 가장 강건합니다. 어떤 걸 고를지 모르겠으면 이걸 쓰세요.",
+        "model.frequency.desc": "DCT/DWT 주파수 영역 워터마크(이미지 전용). JPEG 블록에 정렬되어 가벼운 재압축에 적합합니다.",
+        "model.tree-ring.desc": "디퓨전 생성 이미지의 초기 노이즈/푸리에 패턴에 삽입. AI로 생성한 이미지에 적합합니다.",
+        "model.gaussian-shading.desc": "디퓨전 생성물용. 화질 손실이 거의 없는 방식(Stable Diffusion 기반)입니다.",
+        "model.ringid.desc": "멀티키 링 식별 방식. Tree-Ring을 확장해 여러 키를 구분합니다.",
+        "model.videoseal.desc": "뉴럴 영상 워터마크. 영상에 강하며 H.264/H.265 재인코딩에 잘 견딥니다.",
+        "model.metaseal.desc": "뉴럴 이미지·영상 워터마크(범용).",
+        "model.invismark.desc": "고해상도 이미지용. 매우 높은 화질(PSNR)과 큰 용량이 장점입니다.",
+        "model.wam.desc": "지역·부분 검출 가능(Watermark Anything). 일부만 남거나 잘려도 검출할 수 있습니다.",
         # buttons
         "btn.embed": "워터마크 삽입",
         "btn.embed.busy": "삽입 중…",
@@ -189,6 +199,16 @@ I18N: dict[str, dict[str, str]] = {
         "roi.end": "End (s)",
         "roi.hint": "Fill the box for whole-frame. Small regions only fit on high-resolution video.",
         "roi.read_region": "Read region — match the region used at embed time",
+        # model descriptions (hover help)
+        "model.custom-noise.desc": "Default, general-purpose engine. Keyed Gaussian spread-spectrum for both images and video; most robust to JPEG/re-encoding. Pick this if unsure.",
+        "model.frequency.desc": "DCT/DWT frequency-domain watermark (images only). JPEG-block aligned; good for light recompression.",
+        "model.tree-ring.desc": "Embeds in the initial noise / Fourier pattern of diffusion-generated images. Best for AI-generated images.",
+        "model.gaussian-shading.desc": "For diffusion outputs; performance-lossless (Stable Diffusion based).",
+        "model.ringid.desc": "Multi-key ring identification, extending Tree-Ring to distinguish many keys.",
+        "model.videoseal.desc": "Neural video watermark. Strong for video; survives H.264/H.265 re-encoding.",
+        "model.metaseal.desc": "Neural image/video watermark (general purpose).",
+        "model.invismark.desc": "For high-resolution images; very high fidelity (PSNR) and large capacity.",
+        "model.wam.desc": "Localized / partial detection (Watermark Anything). Detects even if cropped or partly present.",
         "btn.embed": "Embed watermark",
         "btn.embed.busy": "Embedding…",
         "btn.read": "Read watermark",
@@ -395,6 +415,17 @@ button.go:active{transform:translateY(2px) scale(.99)}
 .roifields>div{flex:1;min-width:70px}
 .roifields label{margin:0 0 4px}
 .roihint{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ---------- info tooltip (model help) ---------- */
+.info{position:relative;display:inline-flex;align-items:center;justify-content:center;cursor:help;
+  color:var(--accent);font-weight:700;font-size:11px;border:1px solid var(--accent);border-radius:50%;
+  width:16px;height:16px;margin-left:6px}
+.info .tip{position:absolute;left:24px;top:-8px;width:min(280px,70vw);background:var(--panel);
+  border:1px solid var(--border);border-radius:10px;padding:11px 13px;font-size:12.5px;line-height:1.5;
+  color:var(--text);font-weight:400;box-shadow:var(--shadow);opacity:0;visibility:hidden;
+  transition:opacity .15s, transform .15s;transform:translateX(-4px);z-index:40;pointer-events:none;text-align:left}
+.info:hover .tip{opacity:1;visibility:visible;transform:translateX(0)}
+.modeldesc{font-size:12.5px;color:var(--muted);margin-top:7px;line-height:1.5;min-height:1.2em}
 """
 
 _LOGO = (
@@ -435,6 +466,17 @@ function applyI18n(){
   document.querySelectorAll('[data-i18n-ph]').forEach(e=>{ const k=e.getAttribute('data-i18n-ph');
     if(I18N[L][k]!==undefined) e.placeholder=I18N[L][k]; });
   const lb=document.getElementById('langBtn'); if(lb) lb.textContent = L==='ko'?'EN':'한국어';
+  if(window.__refreshModelInfo) window.__refreshModelInfo();
+}
+// model help: live description + hover tooltip, localized
+function wireModelInfo(selId, descId, tipId){
+  const sel=document.getElementById(selId); if(!sel) return;
+  function upd(){ const id=sel.value; const txt=t('model.'+id+'.desc');
+    const d=document.getElementById(descId); if(d) d.textContent=txt;
+    const tip=document.getElementById(tipId); if(tip) tip.textContent=txt;
+    Array.from(sel.options).forEach(o=>{ o.title=t('model.'+o.value+'.desc'); }); }
+  sel.addEventListener('change', upd);
+  window.__refreshModelInfo = upd; upd();
 }
 function setTheme(th){ localStorage.setItem('inw_theme',th);
   document.documentElement.setAttribute('data-theme',th);
@@ -570,7 +612,8 @@ async def embed_page() -> str:
         <div class="row">
           <div><label data-i18n="f.kind"></label>
             <select id="kind"><option value="image" data-i18n="kind.image"></option><option value="video" data-i18n="kind.video"></option></select></div>
-          <div><label data-i18n="f.model"></label><select id="model"></select></div>
+          <div><label><span data-i18n="f.model"></span><span class="info">i<span class="tip" id="modelTip"></span></span></label>
+            <select id="model"></select><div class="modeldesc" id="modelDesc"></div></div>
         </div>
         <div class="row">
           <div><label data-i18n="f.asset"></label><input id="asset_id" value="ASSET-001" required></div>
@@ -605,7 +648,7 @@ async def embed_page() -> str:
       <div class="result" id="res"></div>
     </div>
     <script>
-    loadModels('model');
+    loadModels('model').then(()=>wireModelInfo('model','modelDesc','modelTip'));
     const roi = attachRoi({withTime:true});
     document.getElementById('file').addEventListener('change', e=>{
       const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
@@ -718,7 +761,8 @@ async def remove_page() -> str:
               <option value="residual_reconstruction" data-i18n="method.residual"></option>
               <option value="watermark_isolation" data-i18n="method.iso"></option>
             </select></div>
-          <div><label data-i18n="f.model"></label><select id="model"></select></div>
+          <div><label><span data-i18n="f.model"></span><span class="info">i<span class="tip" id="modelTip"></span></span></label>
+            <select id="model"></select><div class="modeldesc" id="modelDesc"></div></div>
         </div>
         <label data-i18n="f.asset_tmpl"></label>
         <input id="asset_id" value="ASSET-001">
@@ -727,7 +771,7 @@ async def remove_page() -> str:
       <div class="result" id="res"></div>
     </div>
     <script>
-    loadModels('model');
+    loadModels('model').then(()=>wireModelInfo('model','modelDesc','modelTip'));
     document.getElementById('f').addEventListener('submit', async (ev)=>{
       ev.preventDefault();
       const b=document.getElementById('go'); b.disabled=true; b.textContent=t('btn.remove.busy');
