@@ -73,6 +73,8 @@ I18N: dict[str, dict[str, str]] = {
         "roi.start": "시작 (초)",
         "roi.end": "끝 (초)",
         "roi.hint": "전체에 넣으려면 박스를 가득 채우세요. 작은 영역은 고해상도 영상에서만 가능합니다.",
+        "roi.minnote": "이 영상에서 가능한 최소 영역: {w}% × {h}% (이보다 작게는 줄어들지 않습니다)",
+        "roi.nofit": "이 해상도에서는 워터마크가 들어갈 수 없습니다. 더 높은 해상도의 영상을 사용하세요.",
         "roi.read_region": "판독 영역 — 삽입 때와 같은 영역으로 지정",
         # model descriptions (hover help)
         "model.custom-noise.desc": "기본·범용 엔진. 키 기반 가우시안 스프레드 스펙트럼으로 이미지·영상 모두 지원하며 JPEG·재인코딩에 가장 강건합니다. 어떤 걸 고를지 모르겠으면 이걸 쓰세요.",
@@ -128,6 +130,7 @@ I18N: dict[str, dict[str, str]] = {
         "sig.valid": "유효 ✓",
         "sig.invalid": "무효 ✗",
         "msg.notfound": "이 파일에서 등록된 워터마크를 복원하지 못했습니다.",
+        "err.network": "서버에 연결할 수 없습니다. 서버가 켜져 있는지 확인하고 잠시 후 다시 시도하세요.",
         "dl.file": "⬇ 워터마크 파일 다운로드",
         "dl.result": "⬇ 결과 다운로드",
         # audit
@@ -198,6 +201,8 @@ I18N: dict[str, dict[str, str]] = {
         "roi.start": "Start (s)",
         "roi.end": "End (s)",
         "roi.hint": "Fill the box for whole-frame. Small regions only fit on high-resolution video.",
+        "roi.minnote": "Smallest possible region for this video: {w}% × {h}% (the box won't shrink below this)",
+        "roi.nofit": "A watermark cannot fit at this resolution. Use a higher-resolution video.",
         "roi.read_region": "Read region — match the region used at embed time",
         # model descriptions (hover help)
         "model.custom-noise.desc": "Default, general-purpose engine. Keyed Gaussian spread-spectrum for both images and video; most robust to JPEG/re-encoding. Pick this if unsure.",
@@ -248,6 +253,7 @@ I18N: dict[str, dict[str, str]] = {
         "sig.valid": "valid ✓",
         "sig.invalid": "invalid ✗",
         "msg.notfound": "No registered watermark was recovered from this file.",
+        "err.network": "Could not reach the server. Make sure it is running and try again.",
         "dl.file": "⬇ Download watermarked file",
         "dl.result": "⬇ Download result",
         "audit.title": "Audit trail",
@@ -490,6 +496,7 @@ function basename(p){ return (p||'').split(/[\\\\/]/).pop(); }
 function kv(k,v){ return `<div class="kv"><b>${k}</b><span class="v">${v}</span></div>`; }
 function badge(ok,txt){ return `<span class="badge ${ok?'ok':'bad'}">${txt}</span>`; }
 function show(id,html){ const e=document.getElementById(id); e.innerHTML=html; e.classList.add('show'); }
+function errMsg(e){ const s=String((e&&e.message)||e); return /Failed to fetch|NetworkError/i.test(s)?t('err.network'):s; }
 // ---- interactive 3D tilt (pointer parallax) ----
 function initTilt(){
   if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -512,26 +519,46 @@ function attachRoi(cfg){
   const wrap=document.getElementById('roiwrap');
   const stage=document.getElementById('stage');
   const box=document.getElementById('roibox');
-  let url=null, isVid=false;
-  let bx=0,by=0,bw=100,bh=100;
+  let url=null, isVid=false, media=null;
+  let bx=0,by=0,bw=100,bh=100, minW=5, minH=5;
   const $=(id)=>document.getElementById(id);
   function draw(){ box.style.left=bx+'%';box.style.top=by+'%';box.style.width=bw+'%';box.style.height=bh+'%'; }
   function sync(){ $('roi_x').value=Math.round(bx);$('roi_y').value=Math.round(by);
     $('roi_w').value=Math.round(bw);$('roi_h').value=Math.round(bh); }
-  function setBox(x,y,w,h){ bw=Math.max(5,Math.min(100,w)); bh=Math.max(5,Math.min(100,h));
+  function setBox(x,y,w,h){ bw=Math.max(minW,Math.min(100,w)); bh=Math.max(minH,Math.min(100,h));
     bx=Math.max(0,Math.min(100-bw,x)); by=Math.max(0,Math.min(100-bh,y)); draw(); }
+  async function refreshMin(){
+    if(!media) return;
+    const W=media.videoWidth||media.naturalWidth||0, H=media.videoHeight||media.naturalHeight||0;
+    if(!W||!H) return;
+    const model = (cfg.modelSelId && $(cfg.modelSelId)) ? $(cfg.modelSelId).value : 'custom-noise';
+    try{
+      const r=await fetch(`/api/v1/capacity?model=${encodeURIComponent(model)}&width=${W}&height=${H}`);
+      const d=await r.json();
+      minW=Math.min(100,Math.ceil(d.min_w_frac*100));
+      minH=Math.min(100,Math.ceil(d.min_h_frac*100));
+      const hint=$('roihint');
+      if(hint){ hint.textContent = d.fits
+        ? t('roi.minnote').replace('{w}',minW).replace('{h}',minH)
+        : t('roi.nofit'); }
+      // grow box if it is now below the minimum
+      setBox(bx,by,Math.max(bw,minW),Math.max(bh,minH)); sync();
+    }catch(e){}
+  }
   fileEl.addEventListener('change', e=>{
     const f=e.target.files[0];
     if(!f){ wrap.style.display='none'; return; }
     isVid=(f.type||'').startsWith('video');
     if(!isVid && !cfg.alwaysShow){ wrap.style.display='none'; return; }
     if(url) URL.revokeObjectURL(url); url=URL.createObjectURL(f);
-    const media = isVid ? document.createElement('video') : document.createElement('img');
+    media = isVid ? document.createElement('video') : document.createElement('img');
     media.src=url; if(isVid){ media.controls=true; media.muted=true; media.playsInline=true; }
+    minW=5; minH=5;
     stage.innerHTML=''; stage.appendChild(media); stage.appendChild(box);
     wrap.style.display='block'; setBox(0,0,100,100); sync();
-    if(cfg.withTime && isVid){ media.addEventListener('loadedmetadata', ()=>{
-      if(isFinite(media.duration)){ $('start_sec').value='0'; $('end_sec').value=media.duration.toFixed(1); } }); }
+    const onMeta=()=>{ refreshMin();
+      if(cfg.withTime && isVid && isFinite(media.duration)){ $('start_sec').value='0'; $('end_sec').value=media.duration.toFixed(1); } };
+    if(isVid) media.addEventListener('loadedmetadata', onMeta); else media.addEventListener('load', onMeta);
   });
   // drag move / resize
   let mode=null,sx,sy,o;
@@ -548,6 +575,7 @@ function attachRoi(cfg){
     setBox(+$('roi_x').value,+$('roi_y').value,+$('roi_w').value,+$('roi_h').value); }));
   return {
     isVideo:()=>isVid,
+    refreshMin:refreshMin,
     appendTo:(fd)=>{
       const full = Math.round(bx)===0&&Math.round(by)===0&&Math.round(bw)===100&&Math.round(bh)===100;
       if(!full){ fd.append('roi_x',(bx/100).toFixed(4)); fd.append('roi_y',(by/100).toFixed(4));
@@ -649,7 +677,8 @@ async def embed_page() -> str:
     </div>
     <script>
     loadModels('model').then(()=>wireModelInfo('model','modelDesc','modelTip'));
-    const roi = attachRoi({withTime:true});
+    const roi = attachRoi({withTime:true, modelSelId:'model'});
+    document.getElementById('model').addEventListener('change', ()=>roi.refreshMin());
     document.getElementById('file').addEventListener('change', e=>{
       const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
       if((f.type||'').startsWith('video')) k.value='video';
@@ -673,7 +702,7 @@ async def embed_page() -> str:
             +kv(t('kv.delivery'),d.delivery_id)+kv(t('kv.token'),d.token_id)+kv(t('kv.model'),d.model)
             +kv(t('kv.psnr'),d.psnr)+kv(t('kv.ssim'),d.ssim)
             +`<a class="dl" href="${dl}" download>${t('dl.file')}</a>`); }
-      }catch(e){ show('res', badge(false,t('badge.error'))+' '+e); }
+      }catch(e){ show('res', badge(false,t('badge.error'))+' '+errMsg(e)); }
       b.disabled=false; b.textContent=t('btn.embed');
     });
     </script>
@@ -705,6 +734,7 @@ async def read_page() -> str:
             <div><label data-i18n="roi.w"></label><input id="roi_w" type="number" value="100"></div>
             <div><label data-i18n="roi.h"></label><input id="roi_h" type="number" value="100"></div>
           </div>
+          <div class="roihint" id="roihint"></div>
         </div>
 
         <button type="submit" class="go" id="go" data-i18n="btn.read"></button>
@@ -735,7 +765,7 @@ async def read_page() -> str:
             +kv(t('kv.signature'), d.signature_valid?t('sig.valid'):t('sig.invalid'))
             +kv(t('kv.chain'),(d.trace_path||[]).join(' → '))); }
         else { show('res', badge(false,t('badge.notfound'))+`<div class="hint">${t('msg.notfound')}</div>`); }
-      }catch(e){ show('res', badge(false,t('badge.error'))+' '+e); }
+      }catch(e){ show('res', badge(false,t('badge.error'))+' '+errMsg(e)); }
       b.disabled=false; b.textContent=t('btn.read');
     });
     </script>
@@ -786,7 +816,7 @@ async def remove_page() -> str:
             +kv(t('kv.method'),d.method)+kv(t('kv.detected'),d.watermark_detected)
             +kv(t('kv.success'),(d.removal_success*100).toFixed(1)+'%')+kv(t('kv.quality'),d.quality_score)
             +`<a class="dl" href="${dl}" download>${t('dl.result')}</a>`); }
-      }catch(e){ show('res', badge(false,t('badge.error'))+' '+e); }
+      }catch(e){ show('res', badge(false,t('badge.error'))+' '+errMsg(e)); }
       b.disabled=false; b.textContent=t('btn.remove');
     });
     </script>
