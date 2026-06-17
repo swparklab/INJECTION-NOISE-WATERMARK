@@ -50,6 +50,7 @@ dependencies = [
     # Platform: image / video / signal processing
     "opencv-python>=4.8.0",
     "PyWavelets>=1.4.0",
+    "pillow-heif>=0.13.0",
     "imageio>=2.31.0",
     "imageio-ffmpeg>=0.4.9",
     "av>=10.0.0",

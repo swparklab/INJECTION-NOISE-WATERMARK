@@ -501,6 +501,11 @@ async def embed_page() -> str:
     </div>
     <script>
     loadModels('model');
+    document.getElementById('file').addEventListener('change', e=>{
+      const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
+      if((f.type||'').startsWith('video')) k.value='video';
+      else if((f.type||'').startsWith('image')) k.value='image';
+    });
     document.getElementById('f').addEventListener('submit', async (ev)=>{
       ev.preventDefault();
       const b=document.getElementById('go'); b.disabled=true; b.textContent=t('btn.embed.busy');
@@ -544,6 +549,11 @@ async def read_page() -> str:
       <div class="result" id="res"></div>
     </div>
     <script>
+    document.getElementById('file').addEventListener('change', e=>{
+      const f=e.target.files[0]; if(!f) return; const k=document.getElementById('kind');
+      if((f.type||'').startsWith('video')) k.value='video';
+      else if((f.type||'').startsWith('image')) k.value='image';
+    });
     document.getElementById('f').addEventListener('submit', async (ev)=>{
       ev.preventDefault();
       const b=document.getElementById('go'); b.disabled=true; b.textContent=t('btn.read.busy');
