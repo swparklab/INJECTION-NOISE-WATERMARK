@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api import detect, embed, models, remove, trace, verify
+from app.api import assets, detect, embed, models, remove, trace, verify, web
 from app.config.settings import get_settings
 from app.core import registry as engine_registry
 from app.db.base import init_db
@@ -78,21 +78,15 @@ def create_app() -> FastAPI:
     app.include_router(remove.router, prefix=prefix)
     app.include_router(verify.router, prefix=prefix)
     app.include_router(models.router, prefix=prefix)
+    app.include_router(assets.router, prefix=prefix)
+
+    # Browser UI (dashboard at /, workflow pages under /ui/*).
+    app.include_router(web.router)
 
     @app.get("/health", tags=["health"])
     async def health() -> dict:
         """Liveness probe."""
         return {"status": "ok", "models": engine_registry.available_models()}
-
-    @app.get("/", tags=["health"])
-    async def root() -> dict:
-        """Root info."""
-        return {
-            "name": settings.app_name,
-            "version": "0.2.0",
-            "docs": "/docs",
-            "api": prefix,
-        }
 
     return app
 

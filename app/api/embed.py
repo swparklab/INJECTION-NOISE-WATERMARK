@@ -112,3 +112,102 @@ async def embed_image(
         output_uri=str(out_path),
         c2pa_manifest_uri=str(manifest_path),
     )
+
+
+@router.post("/video/embed", response_model=EmbedResponse)
+async def embed_video(
+    file: UploadFile = File(...),
+    asset_id: str = Form(...),
+    client_id: str = Form(...),
+    recipient_id: str = Form(...),
+    delivery_id: str | None = Form(None),
+    model: str = Form("custom-noise"),
+    strength: float = Form(0.3),
+    distribution_id: str = Form(""),
+    parent_delivery_id: str | None = Form(None),
+    title: str = Form(""),
+    service: WatermarkService = Depends(get_watermark_service),
+    session: Session = Depends(db_session),
+) -> EmbedResponse:
+    """Embed a watermark token into every frame of an uploaded video.
+
+    Each frame carries the same delivery token; detection later uses majority
+    frame-voting. The output is re-encoded to H.264. Heavy for long clips — for
+    production this runs on a background worker.
+    """
+    import tempfile
+
+    from app.core import registry as engine_registry
+    from app.payload.service import TokenCodec
+    from app.video import io as video_io
+
+    settings = get_settings()
+    raw = await file.read()
+    suffix = Path(file.filename or "in.mp4").suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(raw)
+        in_path = tmp.name
+
+    frames = list(video_io.read_frames(in_path))
+    if not frames:
+        raise HTTPException(status_code=400, detail="no frames decoded from video")
+    fps = video_io.probe_fps(in_path)
+
+    delivery_id = delivery_id or str(uuid.uuid4())
+    tc = TokenCodec()
+    token_id = tc.new_token_id()
+    wire = tc.encode(token_id)
+    key = service._key_for_asset(asset_id)
+
+    try:
+        engine = engine_registry.get_engine(model)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    psnrs: list[float] = []
+    wm_frames = []
+    for frame in frames:
+        res = engine.embed(frame, wire, key, strength)
+        wm_frames.append(res.image)
+        psnrs.append(res.psnr)
+
+    out_dir = Path(settings.data_dir) / "assets"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{delivery_id}.mp4"
+    # High-quality encode (crf 16) so the low-amplitude mark survives this encode.
+    video_io.write_frames(out_path, wm_frames, fps=fps, codec="libx264", crf=16)
+
+    reg = RegistryService(session)
+    reg.create_asset(asset_id, client_id, title=title, media_type="video")
+    reg.record_delivery(
+        asset_id=asset_id,
+        client_id=client_id,
+        recipient_id=recipient_id,
+        delivery_id=delivery_id,
+        watermark_model=model,
+        strength=strength,
+        raw_payload=wire,
+        distribution_id=distribution_id,
+        parent_delivery_id=parent_delivery_id,
+        output_uri=str(out_path),
+        metadata={"media_type": "video", "frames": len(frames), "fps": fps},
+    )
+    AuditService(session).log(
+        "embed.video",
+        actor=client_id,
+        resource_type="delivery",
+        resource_id=delivery_id,
+        detail={"model": model, "recipient": recipient_id, "frames": len(frames)},
+    )
+    session.commit()
+
+    avg_psnr = round(sum(psnrs) / len(psnrs), 2) if psnrs else 0.0
+    return EmbedResponse(
+        delivery_id=delivery_id,
+        asset_id=asset_id,
+        token_id=token_id.hex(),
+        model=model,
+        psnr=avg_psnr,
+        ssim=0.0,
+        output_uri=str(out_path),
+    )

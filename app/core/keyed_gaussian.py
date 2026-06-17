@@ -68,11 +68,17 @@ class KeyedGaussianEngine(WatermarkEngine):
     model_id = "custom-noise"
     media_types = ("image", "video")
 
+    #: Minimum chips per bit — floor below which the mark is too weak to trust.
+    MIN_CHIPS = 64
+
     def __init__(self, chips_per_bit: int = 384, band: tuple[float, float] = (0.08, 0.42)) -> None:
         """Initialise the engine.
 
         Args:
-            chips_per_bit: Number of spread-spectrum chips per payload bit.
+            chips_per_bit: Preferred spread-spectrum chips per payload bit (used
+                in full when the carrier band is large enough). For smaller media
+                the engine adaptively reduces this — down to ``MIN_CHIPS`` — so a
+                given payload still fits, trading some robustness for capacity.
             band: Fractional radial frequency band (low, high) of the full-frame
                 DCT used to carry the mark (mid frequencies survive compression
                 while staying invisible).
@@ -89,13 +95,26 @@ class KeyedGaussianEngine(WatermarkEngine):
         mask = (radial >= self.band[0]) & (radial <= self.band[1])
         return np.flatnonzero(mask.ravel())
 
+    def _chips_for(self, n_band: int, n_bits: int) -> int:
+        """Chips-per-bit to use for ``n_bits`` over a band of ``n_band`` coeffs.
+
+        Uses the preferred ``chips_per_bit`` when the band is large, scaling down
+        to ``MIN_CHIPS`` for small media so the payload still fits. Both embed and
+        detect derive this identically from (n_band, n_bits), so they always agree.
+        """
+        if n_bits <= 0:
+            return self.chips_per_bit
+        return int(min(self.chips_per_bit, max(self.MIN_CHIPS, n_band // n_bits)))
+
     def capacity_bits(self, image_shape: tuple[int, ...]) -> int:
-        """Payload capacity given chips_per_bit over the mid-band."""
+        """Maximum payload bits (at the minimum chip count) for this media size."""
         h, w = image_shape[0], image_shape[1]
         n_band = len(self._band_indices(h, w))
-        return max(0, n_band // self.chips_per_bit)
+        return max(0, n_band // self.MIN_CHIPS)
 
-    def _bit_supports(self, key: bytes, n_bits: int, band_idx: np.ndarray) -> list[np.ndarray]:
+    def _bit_supports(
+        self, key: bytes, n_bits: int, band_idx: np.ndarray, chips: int
+    ) -> list[np.ndarray]:
         """Partition band coefficients into per-bit keyed support sets."""
         order = crypto.keystream(key + b"|perm", len(band_idx) * 4)
         ranks = np.frombuffer(order, dtype=np.uint32)
@@ -103,8 +122,8 @@ class KeyedGaussianEngine(WatermarkEngine):
         shuffled = band_idx[perm]
         supports = []
         for bi in range(n_bits):
-            start = bi * self.chips_per_bit
-            supports.append(shuffled[start : start + self.chips_per_bit])
+            start = bi * chips
+            supports.append(shuffled[start : start + chips])
         return supports
 
     # -- embed -------------------------------------------------------------
@@ -130,15 +149,16 @@ class KeyedGaussianEngine(WatermarkEngine):
             raise ValueError(f"payload {n_bits} bits exceeds capacity {cap} bits")
 
         band_idx = self._band_indices(h, w)
-        supports = self._bit_supports(key, n_bits, band_idx)
-        chips = _gaussian_chips(key + b"|chips", n_bits * self.chips_per_bit)
+        chips_n = self._chips_for(len(band_idx), n_bits)
+        supports = self._bit_supports(key, n_bits, band_idx, chips_n)
+        chips = _gaussian_chips(key + b"|chips", n_bits * chips_n)
 
         flat = dct.ravel()
         amp = strength * 6.0
         for bi in range(n_bits):
             sign = 1.0 if bits[bi] else -1.0
             sup = supports[bi]
-            chip = chips[bi * self.chips_per_bit : bi * self.chips_per_bit + len(sup)]
+            chip = chips[bi * chips_n : bi * chips_n + len(sup)]
             flat[sup] += sign * amp * chip
 
         y_wm = cv2.idct(flat.reshape(h, w))
@@ -150,7 +170,7 @@ class KeyedGaussianEngine(WatermarkEngine):
             bits_embedded=n_bits,
             psnr=imaging.psnr(image, out),
             ssim=imaging.ssim(image, out),
-            detail={"engine": self.model_id, "chips_per_bit": self.chips_per_bit},
+            detail={"engine": self.model_id, "chips_per_bit": chips_n},
         )
 
     # -- detect ------------------------------------------------------------
@@ -169,12 +189,13 @@ class KeyedGaussianEngine(WatermarkEngine):
         dct = cv2.dct(y).ravel()
 
         band_idx = self._band_indices(h, w)
-        max_bits = len(band_idx) // self.chips_per_bit
+        max_bits = len(band_idx) // self.MIN_CHIPS
         n_bits = (payload_len * 8) if payload_len else max_bits
         n_bits = min(n_bits, max_bits)
 
-        supports = self._bit_supports(key, n_bits, band_idx)
-        chips = _gaussian_chips(key + b"|chips", n_bits * self.chips_per_bit)
+        chips_n = self._chips_for(len(band_idx), n_bits)
+        supports = self._bit_supports(key, n_bits, band_idx, chips_n)
+        chips = _gaussian_chips(key + b"|chips", n_bits * chips_n)
 
         # Null-hypothesis noise scale: host coefficient std over the band.
         host_std = float(np.std(dct[band_idx])) + 1e-9
@@ -183,7 +204,7 @@ class KeyedGaussianEngine(WatermarkEngine):
         zscores = np.zeros(n_bits, dtype=np.float64)
         for bi in range(n_bits):
             sup = supports[bi]
-            chip = chips[bi * self.chips_per_bit : bi * self.chips_per_bit + len(sup)]
+            chip = chips[bi * chips_n : bi * chips_n + len(sup)]
             response = float(np.dot(dct[sup], chip))
             chip_energy = float(np.dot(chip, chip)) + 1e-12
             # Under H0 (no/foreign mark): response ~ N(0, host_std^2 * chip_energy)

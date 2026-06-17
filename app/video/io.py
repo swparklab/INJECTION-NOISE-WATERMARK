@@ -37,6 +37,18 @@ def read_frames(path: str | Path, max_frames: int | None = None) -> Iterator[np.
             break
 
 
+def probe_fps(path: str | Path, default: float = 30.0) -> float:
+    """Return the video's frame rate, falling back to ``default`` if unknown."""
+    try:
+        import imageio.v3 as iio
+
+        meta = iio.immeta(str(path), plugin="pyav")
+        fps = meta.get("fps")
+        return float(fps) if fps else default
+    except Exception:
+        return default
+
+
 def sample_frames(path: str | Path, n: int = 16) -> list[np.ndarray]:
     """Read up to ``n`` evenly-spaced frames for detection/tracing.
 
@@ -61,7 +73,9 @@ def write_frames(
     frames: list[np.ndarray],
     fps: float = 30.0,
     codec: str = "libx264",
-    quality: int | None = None,
+    crf: int = 16,
+    preset: str = "slow",
+    output_params: list[str] | None = None,
 ) -> None:
     """Write RGB frames to a video file.
 
@@ -70,13 +84,23 @@ def write_frames(
         frames: List of RGB frames.
         fps: Frames per second.
         codec: FFmpeg codec (``libx264`` = H.264, ``libx265`` = H.265).
-        quality: Optional CRF-like quality hint.
+        crf: Constant rate factor. Lower = higher quality. The watermark is a
+            low-amplitude high-frequency signal, so a high-quality encode
+            (``crf<=16``) is required for it to survive the *embedding* encode;
+            the default 23 used by most tools destroys it.
+        preset: x264 speed/quality preset.
+        output_params: Explicit FFmpeg output params (overrides crf/preset).
     """
     import imageio.v2 as iio
 
-    writer_kwargs = {"fps": fps, "codec": codec, "macro_block_size": None}
-    if quality is not None:
-        writer_kwargs["quality"] = quality
-    with iio.get_writer(str(path), **writer_kwargs) as writer:
+    if output_params is None:
+        output_params = ["-crf", str(crf), "-preset", preset, "-pix_fmt", "yuv420p"]
+    with iio.get_writer(
+        str(path),
+        fps=fps,
+        codec=codec,
+        macro_block_size=None,
+        output_params=output_params,
+    ) as writer:
         for frame in frames:
             writer.append_data(frame)
