@@ -311,6 +311,55 @@ th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border)}
 th{color:var(--muted);font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.4px}
 td code{background:var(--panel2);padding:2px 7px;border-radius:6px;font-size:12.5px}
 footer{max-width:920px;margin:10px auto 40px;padding:0 24px;color:var(--muted);font-size:12.5px}
+
+/* ---------- Fluid / responsive sizing (scales with viewport) ---------- */
+main{width:min(960px,92vw);max-width:none;margin:clamp(20px,4vw,40px) auto}
+.hero h1{font-size:clamp(22px,4.2vw,32px)}
+.hero p.sub{font-size:clamp(13.5px,1.6vw,16px)}
+.card{padding:clamp(18px,3vw,28px);border-radius:clamp(12px,1.6vw,18px)}
+footer{width:min(960px,92vw);max-width:none}
+/* true auto-fit responsive grid: 3 -> 2 -> 1 columns by available width */
+.grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));perspective:1400px}
+
+@media(max-width:860px){
+  header{height:auto;flex-wrap:wrap;padding:12px 18px;gap:12px}
+  nav{order:3;width:100%}
+  .ctrls{margin-left:auto}
+}
+@media(max-width:560px){
+  nav a{padding:7px 9px;font-size:12.5px}
+  .brand .bs{display:none}
+  .row{gap:10px}
+}
+
+/* ---------- 3D depth / stereoscopic feel ---------- */
+.tile{
+  transform-style:preserve-3d;
+  transition:transform .18s ease, box-shadow .18s ease, border-color .18s;
+  will-change:transform;
+  box-shadow:var(--shadow), 0 1px 0 color-mix(in srgb,var(--accent) 18%,transparent) inset;
+}
+.tile::after{ /* glossy sheen that shifts with tilt */
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(135deg, color-mix(in srgb,#fff 14%,transparent), transparent 40%);
+  opacity:.0;transition:opacity .2s;
+}
+.tile{position:relative}
+.tile:hover::after{opacity:.6}
+.tile h3,.tile p,.tile a{transform:translateZ(28px)}
+.tile:hover{box-shadow:0 22px 50px rgba(0,0,0,.35),
+  0 0 0 1px color-mix(in srgb,var(--accent) 40%,transparent)}
+.card{transform-style:preserve-3d}
+button.go{transform:translateZ(0);transition:transform .12s, filter .15s, box-shadow .15s}
+button.go:active{transform:translateY(2px) scale(.99)}
+.brand .logo{animation:float 4.5s ease-in-out infinite;filter:drop-shadow(0 4px 10px color-mix(in srgb,var(--accent) 45%,transparent))}
+@keyframes float{0%,100%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-3px) rotate(8deg)}}
+.badge{transform:translateZ(10px)}
+
+@media(prefers-reduced-motion:reduce){
+  *{animation:none!important;transition:none!important}
+  .tile,.tile h3,.tile p,.tile a{transform:none!important}
+}
 """
 
 _LOGO = (
@@ -364,8 +413,22 @@ function basename(p){ return (p||'').split(/[\\\\/]/).pop(); }
 function kv(k,v){ return `<div class="kv"><b>${k}</b><span class="v">${v}</span></div>`; }
 function badge(ok,txt){ return `<span class="badge ${ok?'ok':'bad'}">${txt}</span>`; }
 function show(id,html){ const e=document.getElementById(id); e.innerHTML=html; e.classList.add('show'); }
+// ---- interactive 3D tilt (pointer parallax) ----
+function initTilt(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if(window.matchMedia('(hover: none)').matches) return; // skip on touch
+  const MAX=10; // degrees
+  document.querySelectorAll('.tile').forEach(el=>{
+    el.addEventListener('pointermove', e=>{
+      const r=el.getBoundingClientRect();
+      const px=(e.clientX-r.left)/r.width-0.5, py=(e.clientY-r.top)/r.height-0.5;
+      el.style.transform=`rotateY(${px*MAX}deg) rotateX(${-py*MAX}deg) translateZ(14px)`;
+    });
+    el.addEventListener('pointerleave', ()=>{ el.style.transform=''; });
+  });
+}
 document.documentElement.setAttribute('data-theme', curTheme());
-window.addEventListener('DOMContentLoaded', ()=>{ setTheme(curTheme()); applyI18n(); });
+window.addEventListener('DOMContentLoaded', ()=>{ setTheme(curTheme()); applyI18n(); initTilt(); });
 """
 
 
